@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>Results &amp; Charts</title>
+  <link href="../static/css/results/results1.css" rel="stylesheet">
+  <link href="../static/css/results/results2.css" rel="stylesheet">
+  <script src="../static/js/results/results.js"></script>
+  <script src="/static/js/jspdf.umd.min.js"></script>
+  <script src="/static/js/jspdf.plugin.autotable.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#137fec",
+            "background-light": "#f6f7f8",
+            "background-dark": "#101922",
+          },
+          fontFamily: {
+            "display": ["Space Grotesk", "sans-serif"]
+          },
+          borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+        },
+      },
+    }
+  </script>
+
+<script>
+// Global variable to store substance type
+let isWaterSubstance = false;
+
+async function loadResults() {
+  try {
+    // 1. Fetch Gas Property Data (State 1, k, etc.)
+    const gasDataResponse = await fetch("/check-gas");
+    const gasData = await gasDataResponse.json();
+
+    // Check if it's water or ideal gas
+    isWaterSubstance = gasData.gas_name === "water";
+    
+    // 2. Fetch Simulation Results - USE CORRECT ENDPOINT BASED ON SUBSTANCE
+    let resultsResponse;
+    if (isWaterSubstance) {
+      resultsResponse = await fetch("/get-water-results");
+    } else {
+      resultsResponse = await fetch("/get-results");
+    }
+    const data = await resultsResponse.json();
+
+    // 3. Fetch Process Specific Data (n_value is stored here)
+    const processInfoResponse = await fetch("/get-simulate-results");
+    const processInfo = await processInfoResponse.json();
+
+    if (data.error || gasData.error) {
+      console.error(data.error || gasData.error);
+      return;
+    }
+
+    // --- Title Logic ---
+    const kValue = gasData.k;
+    const nValue = processInfo.n_value;
+    const processType = data.process_type ? data.process_type.toLowerCase() : "unknown";
+
+    let gasName = data.gas_name || gasData.gas_name;
+    gasName = gasName.charAt(0).toUpperCase() + gasName.slice(1);
+
+    let processLabel = "";
+    if (processType === "adiabatic") {
+      processLabel = `Adiabatic Process (k=${kValue ? kValue.toFixed(4) : 'N/A'})`;
+    } else if (processType === "polytropic") {
+      processLabel = `Polytropic Process (n=${nValue ? nValue.toFixed(4) : 'N/A'})`;
+    } else if (processType === "isothermal") {
+      processLabel = "Isothermal Process";
+    } else if (processType === "isochoric") {
+      processLabel = "Isochoric Process";
+    } else if (processType === "isobaric") {
+      processLabel = "Isobaric Process";
+    } else {
+      processLabel = data.process_type || "Unknown Process";
+    }
+
+    const titleContainer = document.getElementById("gasProcessTitle");
+    if (titleContainer) {
+      titleContainer.innerHTML = `
+        <h2 class="text-2xl font-bold text-gray-800 dark:text-white tracking-wide text-center">
+          ${gasName} — ${processLabel}
+        </h2>
+      `;
+    }
+
+    // --- DYNAMIC TABLE CREATION BASED ON SUBSTANCE ---
+    const container = document.getElementById("state-tables-container");
+    container.innerHTML = ''; // Clear existing content
+
+    if (isWaterSubstance) {
+      // WATER/STEAM TABLES
+      // State 1 Table for Water
+      container.innerHTML += `
+        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 p-6">
+          <h4 class="text-base font-bold text-gray-900 dark:text-white pb-4">State 1</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">T₁ (°C)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="T1">${data.state1 ? data.state1.T.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">P₁ (bar)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="P1">${data.state1 ? data.state1.P.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">v₁ (m³/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="v1">${data.state1 ? data.state1.v.toFixed(6) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">u₁ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="u1">${data.state1 ? data.state1.u.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">h₁ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="h1">${data.state1 ? data.state1.h.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">s₁ (kJ/kg·K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="s1">${data.state1 ? data.state1.s.toFixed(5) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">x₁ (Quality)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="x1">${data.state1 && data.state1.x !== undefined ? data.state1.x.toFixed(4) : '0'}</div>
+          </div>
+        </div>
+      `;
+
+      // State 2 Table for Water
+      container.innerHTML += `
+        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 p-6">
+          <h4 class="text-base font-bold text-gray-900 dark:text-white pb-4">State 2</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">T₂ (°C)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="T2">${data.state2 ? data.state2.T.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">P₂ (bar)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="P2">${data.state2 ? data.state2.P.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">v₂ (m³/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="v2">${data.state2 ? data.state2.v.toFixed(6) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">u₂ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="u2">${data.state2 ? data.state2.u.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">h₂ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="h2">${data.state2 ? data.state2.h.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">s₂ (kJ/kg·K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="s2">${data.state2 ? data.state2.s.toFixed(5) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">x₂ (Quality)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="x2">${data.state2 && data.state2.x !== undefined ? data.state2.x.toFixed(4) : '0'}</div>
+          </div>
+        </div>
+      `;
+    } else {
+      // IDEAL GAS TABLES (original format)
+      container.innerHTML += `
+        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 p-6">
+          <h4 class="text-base font-bold text-gray-900 dark:text-white pb-4">State 1</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">T₁ (K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="T1">${data.state1 ? data.state1.T.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">P₁ (kPa)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="P1">${data.state1 ? data.state1.P.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">v₁ (m³/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="v1">${data.state1 ? data.state1.v.toFixed(6) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">u₁ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="u1">${data.state1 ? data.state1.u.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">h₁ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="h1">${data.state1 ? data.state1.h.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">s₁ (kJ/kg·K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="s1">${data.state1 ? data.state1.s.toFixed(5) : '0'}</div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 p-6">
+          <h4 class="text-base font-bold text-gray-900 dark:text-white pb-4">State 2</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">T₂ (K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="T2">${data.state2 ? data.state2.T.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">P₂ (kPa)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="P2">${data.state2 ? data.state2.P.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">v₂ (m³/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="v2">${data.state2 ? data.state2.v.toFixed(6) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">u₂ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="u2">${data.state2 ? data.state2.u.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">h₂ (kJ/kg)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="h2">${data.state2 ? data.state2.h.toFixed(3) : '0'}</div>
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">s₂ (kJ/kg·K)</div>
+            <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="s2">${data.state2 ? data.state2.s.toFixed(5) : '0'}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Processed Quantities Table (same for both)
+    container.innerHTML += `
+      <div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/30 p-6">
+        <h4 class="text-base font-bold text-gray-900 dark:text-white pb-4">Processed Quantities</h4>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">W (kJ/kg)</div>
+          <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="W">${data.processed ? data.processed.W.toFixed(4) : '0'}</div>
+          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Q (kJ/kg)</div>
+          <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="Q">${data.processed ? data.processed.Q.toFixed(4) : '0'}</div>
+          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Δu (kJ/kg)</div>
+          <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="delta_u">${data.processed ? data.processed.delta_u.toFixed(4) : '0'}</div>
+          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Δh (kJ/kg)</div>
+          <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="delta_h">${data.processed ? data.processed.delta_h.toFixed(4) : '0'}</div>
+          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Δs (kJ/kg·K)</div>
+          <div class="text-right text-sm font-mono text-gray-800 dark:text-gray-200" id="delta_s">${data.processed ? data.processed.delta_s.toFixed(6) : '0'}</div>
+        </div>
+      </div>
+    `;
+
+    // --- Image Loading (Cache-Busting) ---
+    const timestamp = new Date().getTime();
+
+    // Check if image URLs exist
+    if (data.pv_img) {
+      document.getElementById("pv-diagram").style.backgroundImage = `url('${data.pv_img}?t=${timestamp}')`;
+    }
+    
+    if (data.ts_img) {
+      document.getElementById("ts-diagram").style.backgroundImage = `url('${data.ts_img}?t=${timestamp}')`;
+    }
+
+  } catch (err) {
+    console.error("Failed to load results:", err);
+    document.getElementById("gasProcessTitle").innerHTML = 
+      '<h2 class="text-2xl font-bold text-red-600 dark:text-red-400 tracking-wide text-center">Error Loading Results</h2>';
+  }
+}
+
+// Run on page load
+window.addEventListener("DOMContentLoaded", loadResults);
+</script>
+
+<script>
+// Download PDF Button Event Listener
+document.addEventListener('DOMContentLoaded', function() {
+  const downloadBtn = document.getElementById('download-btn');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', async () => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      try {
+        // Fetch Gas Property Data to determine substance type
+        const gasData = await fetch('/check-gas').then(res => res.json());
+        const isWater = gasData.gas_name === "water";
+        
+        // Fetch appropriate results
+        let resultsRes;
+        if (isWater) {
+          resultsRes = await fetch('/get-water-results');
+        } else {
+          resultsRes = await fetch('/get-results');
+        }
+        const data = await resultsRes.json();
+        
+        const processInfo = await fetch('/get-simulate-results').then(res => res.json());
+
+        if (data.error || gasData.error) {
+          alert('No simulation data available.');
+          return;
+        }
+
+        const state1 = data.state1;
+        const state2 = data.state2;
+        const processed = data.processed;
+
+        // --- Title logic for PDF ---
+        const kValue = gasData.k;
+        const nValue = processInfo.n_value;
+        const processType = data.process_type ? data.process_type.toLowerCase() : "unknown";
+        let titleLine = `${data.gas_name} Simulation Results`;
+
+        if (processType === "adiabatic" && kValue) {
+          titleLine = `Adiabatic Process Results (k=${kValue.toFixed(4)})`;
+        } else if (processType === "polytropic" && nValue) {
+          titleLine = `Polytropic Process Results (n=${nValue.toFixed(4)})`;
+        } else {
+          titleLine = `${data.gas_name.charAt(0).toUpperCase() + data.gas_name.slice(1)} - ${data.process_type} Results`;
+        }
+
+        doc.text(titleLine, 14, 15);
+        
+        // ---- PAGE 1: Table ----
+        let tableBody = [];
+        
+        if (isWater) {
+          // Water table with quality and different units
+          tableBody = [
+            ['Temperature (°C)', state1.T.toFixed(3), state2.T.toFixed(3), '-'],
+            ['Pressure (bar)', state1.P.toFixed(3), state2.P.toFixed(3), '-'],
+            ['Volume (m³/kg)', state1.v.toFixed(5), state2.v.toFixed(5), '-'],
+            ['Internal Energy (u)', state1.u.toFixed(3), state2.u.toFixed(3), processed.delta_u.toFixed(3)],
+            ['Enthalpy (h)', state1.h.toFixed(3), state2.h.toFixed(3), processed.delta_h.toFixed(3)],
+            ['Entropy (s)', state1.s.toFixed(5), state2.s.toFixed(5), processed.delta_s.toFixed(5)],
+            ['Quality (x)', (state1.x !== undefined ? state1.x.toFixed(4) : 'N/A'), 
+                           (state2.x !== undefined ? state2.x.toFixed(4) : 'N/A'), '-'],
+            ['Work (W)', '-', '-', processed.W.toFixed(3)],
+            ['Heat (Q)', '-', '-', processed.Q.toFixed(3)]
+          ];
+        } else {
+          // Ideal gas table
+          tableBody = [
+            ['Temperature (K)', state1.T.toFixed(3), state2.T.toFixed(3), '-'],
+            ['Pressure (kPa)', state1.P.toFixed(3), state2.P.toFixed(3), '-'],
+            ['Volume (m³/kg)', state1.v.toFixed(5), state2.v.toFixed(5), '-'],
+            ['Internal Energy (u)', state1.u.toFixed(3), state2.u.toFixed(3), processed.delta_u.toFixed(3)],
+            ['Enthalpy (h)', state1.h.toFixed(3), state2.h.toFixed(3), processed.delta_h.toFixed(3)],
+            ['Entropy (s)', state1.s.toFixed(5), state2.s.toFixed(5), processed.delta_s.toFixed(5)],
+            ['Work (W)', '-', '-', processed.W.toFixed(3)],
+            ['Heat (Q)', '-', '-', processed.Q.toFixed(3)]
+          ];
+        }
+
+        doc.autoTable({
+          startY: 25,
+          head: [['Property', 'State 1', 'State 2', 'Processed Quantities']],
+          body: tableBody,
+          theme: 'grid',
+          headStyles: { fillColor: [22, 160, 133] },
+          styles: { fontSize: 10 }
+        });
+
+        // ---- PAGE 2: Plots ----
+        doc.addPage();
+        doc.text("Plots", 14, 15);
+
+        // Cache-Busting for PDF images
+        const timestamp = new Date().getTime();
+
+        const pvImg = new Image();
+        pvImg.src = data.pv_img + '?t=' + timestamp;
+
+        const tsImg = new Image();
+        tsImg.src = data.ts_img + '?t=' + timestamp;
+
+        await new Promise(resolve => {
+          let loaded = 0;
+          const check = () => { loaded++; if (loaded === 2) resolve(); };
+          pvImg.onload = check;
+          tsImg.onload = check;
+        });
+
+        doc.text("P–v Diagram", 14, 25);
+        doc.addImage(pvImg, 'PNG', 14, 30, 180, 90);
+
+        doc.text("T–s Diagram", 14, 125);
+        doc.addImage(tsImg, 'PNG', 14, 130, 180, 90);
+
+        // Save PDF
+        doc.save('simulation_results.pdf');
+
+      } catch (err) {
+        console.error(err);
+        alert('Failed to download PDF. Make sure the simulation has run.');
+      }
+    });
+  }
+
+  // Back to Inputs Button Event Listener - INTELLIGENT NAVIGATION
+  const backButton = document.getElementById('back-to-inputs');
+  if (backButton) {
+    backButton.addEventListener('click', async (e) => {
+      e.preventDefault();
+      
+      try {
+        // Fetch gas data to determine substance type
+        const gasDataResponse = await fetch("/check-gas");
+        const gasData = await gasDataResponse.json();
+        
+        if (!gasData || gasData.message) {
+          alert("No previous simulation data found.");
+          return;
+        }
+        
+        const isWater = gasData.gas_name === "water";
+        
+        // Navigate to appropriate simulation page
+        if (isWater) {
+          window.location.href = "simulation3.html";
+        } else {
+          window.location.href = "simulation2.html";
+        }
+        
+      } catch (err) {
+        console.error(err);
+        alert("Failed to navigate back. You can manually go to simulation2.html for ideal gas or simulation3.html for water.");
+      }
+    });
+  }
+});
+</script>
+
+  <style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+  </style>
+  
+  <style>
+/* ============================================================
+   ENHANCED MOBILE MENU - CLEAN VERSION
+   ============================================================ */
+
+/* 1. OVERLAY AND TRANSITIONS */
+#mobile-overlay {
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    z-index: 9999;
+}
+
+#mobile-overlay:not(.hidden) {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* 2. MENU PANEL SLIDE */
+#mobile-overlay .fixed.top-0.right-0 {
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    height: 100vh;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    width: 280px;
+    z-index: 10000;
+}
+
+.dark #mobile-overlay .fixed.top-0.right-0 {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+}
+
+#mobile-overlay:not(.hidden) .fixed.top-0.right-0 {
+    transform: translateX(0);
+}
+
+/* 3. HAMBURGER BUTTON - SIMPLE HOVER EFFECT */
+#mobile-menu-button {
+    padding: 8px;
+    border-radius: 8px;
+    transition: color 0.2s ease;
+}
+
+#mobile-menu-button:hover {
+    color: #137fec !important;
+}
+
+/* 4. HAMBURGER TO X ANIMATION */
+#line-top, #line-bot {
+    transform-origin: center;
+    transition: transform 0.3s ease;
+}
+
+#line-mid {
+    transition: opacity 0.3s ease;
+}
+
+#mobile-menu-button.active #line-top {
+    transform: translateY(7px) rotate(45deg);
+}
+
+#mobile-menu-button.active #line-mid {
+    opacity: 0;
+}
+
+#mobile-menu-button.active #line-bot {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+/* 5. CLOSE BUTTON - SIMPLE HOVER EFFECT */
+#mobile-overlay .absolute.top-6.right-6 button {
+    padding: 8px;
+    border-radius: 8px;
+    transition: color 0.2s ease;
+}
+
+#mobile-overlay .absolute.top-6.right-6 button:hover {
+    color: #137fec !important;
+}
+
+/* 6. MENU LINKS - REMOVED BOX EFFECT, SIMPLE TEXT HOVER */
+#mobile-overlay a {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0;
+    transition: color 0.2s ease;
+    border-radius: 0;
+    margin: 0;
+    background: transparent !important;
+}
+
+#mobile-overlay a:hover {
+    color: #137fec !important;
+    background: transparent !important;
+}
+
+/* 7. ACTIVE LINK - SIMPLE TEXT COLOR */
+#mobile-overlay a.text-primary {
+    color: #137fec !important;
+    font-weight: 600;
+    background: transparent !important;
+}
+
+/* 8. BACKDROP EFFECT */
+#mobile-overlay .fixed.inset-0.bg-black\/30 {
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    background: rgba(0, 0, 0, 0.25);
+}
+
+/* 9. BODY SCROLL LOCK */
+.no-scroll {
+    overflow: hidden !important;
+}
+
+/* 10. DARK MODE SUPPORT */
+.dark #mobile-overlay a {
+    color: #e5e7eb;
+}
+
+.dark #mobile-overlay a:hover {
+    color: #60a5fa !important;
+}
+
+.dark #mobile-overlay a.text-primary {
+    color: #60a5fa !important;
+}
+
+/* 11. FOCUS STATES */
+#mobile-menu-button:focus-visible,
+#mobile-overlay button:focus-visible,
+#mobile-overlay a:focus-visible {
+    outline: 2px solid #137fec;
+    outline-offset: 2px;
+}
+
+/* 12. MENU CONTENT SPACING */
+#mobile-overlay .flex-1.px-6 {
+    padding-top: 2rem;
+}
+
+#mobile-overlay .gap-y-6 {
+    gap: 0.5rem;
+}
+
+/* 13. MENU CONTAINER */
+#mobile-overlay .pt-20 {
+    padding-top: 5rem;
+}
+
+#mobile-overlay a {
+    font-size: 15px;
+}
+</style>
+
+<script>
+// ============================================================
+// MOBILE MENU - FIXED X BUTTON VERSION
+// ============================================================
+
+// State management
+let isMobileMenuOpen = false;
+let mobileMenuInitialized = false;
+
+// DOM Elements
+let mobileOverlay, mobilePanel, mobileMenuButton, closeButton;
+
+// Initialize on DOM ready
+function initMobileMenu() {
+    if (mobileMenuInitialized) return;
+    
+    mobileOverlay = document.getElementById('mobile-overlay');
+    mobilePanel = mobileOverlay?.querySelector('.fixed.top-0.right-0');
+    mobileMenuButton = document.getElementById('mobile-menu-button');
+    
+    if (!mobileOverlay || !mobileMenuButton) return;
+    
+    // Find close button - FIXED: Use the button inside the panel
+    closeButton = mobileOverlay.querySelector('.absolute.top-6.right-6 button');
+    
+    // Set ARIA attributes
+    updateAriaAttributes();
+    
+    // Add event listeners
+    setupEventListeners();
+    
+    mobileMenuInitialized = true;
+}
+
+// Update ARIA attributes
+function updateAriaAttributes() {
+    if (!mobileMenuButton) return;
+    
+    mobileMenuButton.setAttribute('aria-expanded', isMobileMenuOpen);
+    mobileMenuButton.setAttribute('aria-controls', 'mobile-overlay');
+    mobileMenuButton.setAttribute('aria-label', 
+        isMobileMenuOpen ? 'Close mobile menu' : 'Open mobile menu'
+    );
+}
+
+// Setup all event listeners
+function setupEventListeners() {
+    // 1. Hamburger button click
+    if (mobileMenuButton) {
+        mobileMenuButton.addEventListener('click', toggleMobileMenu);
+    }
+    
+    // 2. Close button (X) in panel - FIXED
+    if (closeButton) {
+        // Remove the inline onclick and add our own
+        closeButton.removeAttribute('onclick');
+        closeButton.addEventListener('click', function(event) {
+            event.stopPropagation();
+            event.preventDefault();
+            toggleMobileMenu();
+        });
+    }
+    
+    // 3. Close on backdrop click
+    if (mobileOverlay) {
+        const backdrop = mobileOverlay.querySelector('.fixed.inset-0.bg-black\\/30');
+        if (backdrop) {
+            // Remove the inline onclick and add our own
+            backdrop.removeAttribute('onclick');
+            backdrop.addEventListener('click', function(event) {
+                event.stopPropagation();
+                event.preventDefault();
+                toggleMobileMenu();
+            });
+        }
+    }
+    
+    // 4. Escape key to close
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // 5. Auto-close on resize to desktop
+    window.addEventListener('resize', handleResize);
+}
+
+// Toggle menu function
+function toggleMobileMenu() {
+    isMobileMenuOpen = !isMobileMenuOpen;
+    
+    if (isMobileMenuOpen) {
+        openMobileMenu();
+    } else {
+        closeMobileMenu();
+    }
+    
+    updateAriaAttributes();
+    
+    // Return false for inline onclick to work properly
+    return false;
+}
+
+// Open menu function
+function openMobileMenu() {
+    if (!mobileOverlay || !mobilePanel || !mobileMenuButton) return;
+    
+    // Show overlay
+    mobileOverlay.classList.remove('hidden');
+    
+    // Trigger reflow for smooth animation
+    void mobilePanel.offsetWidth;
+    
+    // Slide in panel
+    mobilePanel.classList.remove('translate-x-full');
+    
+    // Animate hamburger to X
+    mobileMenuButton.classList.add('active');
+    
+    // Prevent body scroll
+    document.body.classList.add('no-scroll');
+}
+
+// Close menu function
+function closeMobileMenu() {
+    if (!mobileOverlay || !mobilePanel || !mobileMenuButton) return;
+    
+    // Slide out panel
+    mobilePanel.classList.add('translate-x-full');
+    
+    // Animate X back to hamburger
+    mobileMenuButton.classList.remove('active');
+    
+    // Allow body scroll
+    document.body.classList.remove('no-scroll');
+    
+    // Hide overlay after animation
+    setTimeout(() => {
+        if (!isMobileMenuOpen) {
+            mobileOverlay.classList.add('hidden');
+        }
+    }, 300);
+}
+
+// Handle keyboard events
+function handleKeyDown(e) {
+    // Escape key closes menu
+    if (e.key === 'Escape' && isMobileMenuOpen) {
+        toggleMobileMenu();
+        e.preventDefault();
+    }
+}
+
+// Handle window resize
+function handleResize() {
+    if (window.innerWidth >= 1024 && isMobileMenuOpen) {
+        toggleMobileMenu();
+    }
+}
+
+// Cleanup function
+function cleanupMobileMenu() {
+    if (!mobileMenuInitialized) return;
+    
+    if (mobileMenuButton) {
+        mobileMenuButton.removeEventListener('click', toggleMobileMenu);
+    }
+    
+    if (closeButton) {
+        closeButton.removeEventListener('click', toggleMobileMenu);
+    }
+    
+    document.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('resize', handleResize);
+    
+    mobileMenuInitialized = false;
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMobileMenu);
+} else {
+    initMobileMenu();
+}
+
+// Make toggleMobileMenu globally accessible
+window.toggleMobileMenu = toggleMobileMenu;
+</script>
+</head>
+
+<body class="font-display bg-background-light dark:bg-background-dark">
+  <div class="relative flex min-h-screen w-full flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 w-full border-b border-solid border-[#233648] bg-background-dark/80 backdrop-blur-sm">
+    <nav aria-label="Global" class="mx-auto flex max-w-7xl items-center justify-between p-6 lg:px-8">
+        <div class="flex flex-1">
+            <a class="flex items-center gap-2" href="home.html">
+                <span id="thermo-icon-styled"></span>
+                <span class="material-symbols-outlined text-primary text-2xl">
+                    <img src='../static/icons/thermo1.svg' alt='thermostat' class="h-6 w-6">
+                </span>
+                <span class="text-lg font-bold text-gray-900 dark:text-white">ThermoSim</span>
+            </a>
+        </div>
+
+        <div class="flex lg:hidden">
+            <button id="mobile-menu-button" type="button" class="relative z-50 p-2 text-slate-400 focus:outline-none">
+                <span class="sr-only">Toggle Menu</span>
+                <svg class="h-6 w-6 fill-none stroke-current stroke-2 transition-all duration-300" viewBox="0 0 24 24">
+                    <path id="line-top" d="M4 6h16" class="origin-center transition-all duration-300" />
+                    <path id="line-mid" d="M4 12h16" class="transition-all duration-300" />
+                    <path id="line-bot" d="M4 18h16" class="origin-center transition-all duration-300" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="hidden lg:flex lg:flex-1 lg:justify-end lg:gap-x-8">
+            <a class="text-sm font-medium leading-6 text-slate-900 dark:text-white hover:text-primary dark:hover:text-primary" href="/home.html">Home</a>
+            <a class="text-sm font-medium leading-6 text-slate-900 dark:text-white hover:text-primary dark:hover:text-primary" href="/simulation1.html">Simulation</a>
+            <a class="text-sm font-semibold leading-6 text-primary dark:text-primary" href="results.html">Results</a>
+            <a class="text-sm font-medium leading-6 text-slate-900 dark:text-white hover:text-primary dark:hover:text-primary" href="about.html">About</a>
+            <a class="text-sm font-medium leading-6 text-slate-900 dark:text-white hover:text-primary dark:hover:text-primary" href="/help.html">Help</a>
+        </div>
+    </nav>
+
+    <!-- Mobile Menu - White background only for menu items -->
+    <div id="mobile-overlay" class="fixed inset-0 z-40 hidden lg:hidden">
+        <!-- Semi-transparent backdrop -->
+        <div class="fixed inset-0 bg-black/30" onclick="toggleMobileMenu()"></div>
+        
+        <!-- White menu panel that slides in from right -->
+        <div class="fixed top-0 right-0 h-full w-64 bg-white shadow-lg transform transition-transform duration-300 ease-out translate-x-full">
+            <div class="h-full flex flex-col pt-20">
+                <!-- Close button at top right of panel -->
+                <div class="absolute top-6 right-6">
+                    <button onclick="toggleMobileMenu()" type="button" class="p-2 text-gray-600 hover:text-primary focus:outline-none transition-colors">
+                        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                
+                <!-- Menu links with white background -->
+                <div class="flex-1 px-6">
+                    <div class="flex flex-col gap-y-6">
+                        <a href="/home.html" 
+                           class="text-sm font-medium leading-6 text-slate-900 hover:text-primary transition-colors duration-200 py-2"
+                           onclick="toggleMobileMenu()">
+                            Home
+                        </a>
+                        
+                        <a href="/simulation1.html" 
+                           class="text-sm font-medium leading-6 text-slate-900 hover:text-primary transition-colors duration-200 py-2"
+                           onclick="toggleMobileMenu()">
+                            Simulation
+                        </a>
+                        
+                        <a href="results.html" 
+                           class="text-sm font-semibold leading-6 text-primary py-2"
+                           onclick="toggleMobileMenu()">
+                            Results
+                        </a>
+                        
+                        <a href="about.html" 
+                           class="text-sm font-medium leading-6 text-slate-900 hover:text-primary transition-colors duration-200 py-2"
+                           onclick="toggleMobileMenu()">
+                            About
+                        </a>
+                        
+                        <a href="/help.html" 
+                           class="text-sm font-medium leading-6 text-slate-900 hover:text-primary transition-colors duration-200 py-2"
+                           onclick="toggleMobileMenu()">
+                            Help
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+    <!-- Main content -->
+    <div class="layout-container flex h-full grow flex-col">
+      <div class="flex flex-1 justify-center p-4 sm:p-6 md:p-8">
+        <div class="layout-content-container flex w-full max-w-7xl flex-1 flex-col">
+          <div class="flex flex-wrap items-center justify-between gap-4 py-4">
+            <div class="flex flex-col gap-1">
+              <p class="text-3xl font-bold text-gray-900 dark:text-white leading-tight tracking-tight">Results & Charts</p>
+              <p class="text-base font-normal text-gray-500 dark:text-gray-400">Thermodynamics Simulation Output</p>
+            </div>
+          </div>
+          <!-- Gas + Process Title -->
+          <div id="gasProcessTitle" class="w-full text-center mt-2 mb-6">
+            <h2 class="text-2xl font-bold text-gray-800 dark:text-white tracking-wide">
+              <!-- Will be updated by JS -->
+            </h2>
+          </div>
+
+          <main class="flex flex-1 flex-col gap-8 pt-6">
+            <div class="grid grid-cols-1 gap-8 lg:grid-cols-2">
+              <!-- P-v Diagram -->
+              <div class="flex flex-col">
+                <h3 class="text-lg font-bold text-gray-900 dark:text-white leading-tight tracking-tight px-1 pb-3">P–v Diagram</h3>
+                <div class="w-full overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+                  <div id="pv-diagram" class="aspect-[4/3] w-full bg-center bg-no-repeat bg-cover"
+                    data-alt="Pressure-Volume diagram generated by matplotlib."></div>
+                </div>
+              </div>
+
+              <!-- T-s Diagram -->
+              <div class="flex flex-col">
+                <h3 class="text-lg font-bold text-gray-900 dark:text-white leading-tight tracking-tight px-1 pb-3">T–s Diagram</h3>
+                <div class="w-full overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+                  <div id="ts-diagram" class="aspect-[4/3] w-full bg-center bg-no-repeat bg-cover"
+                    data-alt="Temperature-Entropy diagram generated by matplotlib."></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- State 1, State 2, Processed Quantities - DYNAMIC CONTAINER -->
+            <div id="state-tables-container" class="grid grid-cols-1 gap-6 md:grid-cols-3">
+              <!-- Will be populated by JavaScript based on substance type -->
+            </div>
+
+            <!-- Buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-end gap-3 pt-8 pb-4">
+              <button id="back-to-inputs"
+                class="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-gray-200 dark:bg-gray-800 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
+                <span class="material-symbols-outlined text-primary text-2xl"><img src='../static/icons/arrow_back.svg' width="20rem" alt='back'></span>
+                Back to Inputs
+              </button>
+              <button id="download-btn"
+                class="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition-colors">
+                <span class="material-symbols-outlined text-primary text-2xl"><img src='../static/icons/download_img.svg' width="20rem" alt='download'></span>
+                Download Data (PDF)
+              </button>
+            </div>
+
+          </main>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+
+</html>
